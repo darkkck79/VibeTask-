@@ -1,44 +1,81 @@
 import { useEffect, useState } from 'react';
-
-const STORAGE_KEY = 'vibetask.tasks';
+import { supabase } from './supabaseClient';
 
 function App() {
-  const [tasks, setTasks] = useState(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-    } catch {
-      return [];
-    }
-  });
+  const [tasks, setTasks] = useState([]);
   const [text, setText] = useState('');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
-  }, [tasks]);
+    fetchTasks();
+  }, []);
 
-  const addTask = (event) => {
+  const fetchTasks = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      setTasks(data || []);
+    } catch (error) {
+      console.error('Error fetching tasks:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const addTask = async (event) => {
     event.preventDefault();
     const trimmed = text.trim();
     if (!trimmed) return;
 
-    setTasks((current) => [
-      { id: Date.now().toString(), text: trimmed, completed: false },
-      ...current,
-    ]);
-    setText('');
+    try {
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert([{ text: trimmed, completed: false }])
+        .select();
+      
+      if (error) throw error;
+      setTasks((current) => [...data, ...current]);
+      setText('');
+    } catch (error) {
+      console.error('Error adding task:', error);
+    }
   };
 
-  const toggleTask = (id) => {
-    setTasks((current) =>
-      current.map((task) =>
-        task.id === id ? { ...task, completed: !task.completed } : task
-      )
-    );
+  const toggleTask = async (id) => {
+    const task = tasks.find((t) => t.id === id);
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({ completed: !task.completed })
+        .eq('id', id);
+      
+      if (error) throw error;
+      setTasks((current) =>
+        current.map((t) =>
+          t.id === id ? { ...t, completed: !t.completed } : t
+        )
+      );
+    } catch (error) {
+      console.error('Error toggling task:', error);
+    }
   };
 
-  const deleteTask = (id) => {
-    setTasks((current) => current.filter((task) => task.id !== id));
+  const deleteTask = async (id) => {
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      setTasks((current) => current.filter((task) => task.id !== id));
+    } catch (error) {
+      console.error('Error deleting task:', error);
+    }
   };
 
   return (
@@ -80,7 +117,7 @@ function App() {
               <div className="task-panel-header">
                 <div>
                   <h2>Your tasks</h2>
-                  <p>Quickly add, complete, and remove tasks.</p>
+                  <p>{loading ? 'Loading...' : 'Quickly add, complete, and remove tasks.'}</p>
                 </div>
                 <span id="task-count">{tasks.length} task{tasks.length === 1 ? '' : 's'}</span>
               </div>
@@ -92,12 +129,17 @@ function App() {
                   type="text"
                   placeholder="Add a new task"
                   aria-label="Add a new task"
+                  disabled={loading}
                 />
-                <button type="submit">Add</button>
+                <button type="submit" disabled={loading}>Add</button>
               </form>
 
               <ul className="task-list" aria-live="polite">
-                {tasks.length === 0 ? (
+                {loading ? (
+                  <li className="task-item">
+                    <p className="task-text">Loading tasks...</p>
+                  </li>
+                ) : tasks.length === 0 ? (
                   <li className="task-item">
                     <p className="task-text">No tasks yet. Add one to get started.</p>
                   </li>
